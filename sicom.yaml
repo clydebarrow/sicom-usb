@@ -1,0 +1,62 @@
+substitutions:
+  friendly_name: USB Test
+
+esphome:
+  name: usb-test
+  friendly_name: ${friendly_name}
+  platformio_options:
+    build_unflags: -Werror=all
+    board_build.flash_mode: dio
+
+
+esp32:
+  board: um_feathers2
+  framework:
+    type: esp-idf
+    platform_version: 6.9.0
+    version: 5.3.1
+    sdkconfig_options:
+      CONFIG_ESP32S3_DEFAULT_CPU_FREQ_240: "y"
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+
+logger:
+  level: DEBUG
+  hardware_uart: UART0
+  logs:
+    wifi: INFO
+    esp-idf: INFO
+    touchscreen: INFO
+    lvgl: INFO
+    modbus_controller.sensor: INFO
+    modbus_controller: INFO
+    sensor: INFO
+
+wifi: !include wifi.yaml
+
+api:
+
+ota:
+  platform: esphome
+
+web_server:
+
+external_components:
+  - source: github://clydebarrow/esphome@power-meter
+    components: [modbus, usb_uart, usb_host]
+    refresh: 1h
+
+usb_uart:
+  - type: CDC_ACM
+    vid: 0 #0x067b
+    pid: 0 #0x2303
+    channels:
+      id: usb_uart_id
+      #baud_rate: 9600
+      buffer_size: 1024
+      #debug: true
+      #dummy_receiver: true
+
+sicom:
+  devices:

@@ -1,0 +1,29 @@
+#	USB descriptors for Sicom device
+
+id: sicom_usb
+usb_version: "1.1"
+product: Sicom USB
+release: 1.2
+vendor_id: 0x1725
+product_id: 7
+class: 0xFF
+subclass: 0
+protocol: 0
+serial: ""
+manufacturer: Control-J
+configurations:
+  name: Sicom Data
+  power_source: bus
+  max_current: 20
+  wakeup: false
+  interfaces:
+    - name: Data
+      endpoints:
+        - number: 1
+          direction: in
+          type: bulk
+          max_packet_size: 64
+        - number: 2
+          direction: out
+          type: bulk
+          max_packet_size: 64
