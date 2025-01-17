@@ -1376,7 +1376,7 @@ START of discovery sequence
 [16:15:44][I][sicom:095]: Received Master message: FA.09.20.29.CE.1C.2A.01.43.8C (10)
 [16:15:44][I][sicom:095]: Received Slave message: 01.09.10.C1.2A.1C.CE.29.12.7C (10)
 [16:15:44][I][sicom:095]: Received Master message: FA.04.31.CF.FF (5)
-[16:15:44][I][sicom:095]: Received Slave message: FA.09.0E.C0.B4.6D.65.24.9E.91 (10)
+[16:15:44][I][sicom:095]: Received Slave message: FA.09.0E.C0.B4.6D.65.24.9E.91 (10)    SC301 
 [16:15:44][I][sicom:095]: Received Master message: FA.09.20.24.65.6D.B4.02.96.EC (10)
 [16:15:44][I][sicom:095]: Received Slave message: 02.09.0E.C1.B4.6D.65.24.84.14 (10)
 [16:15:44][I][sicom:095]: Received Master message: FA.04.31.CF.FF (5)
@@ -1384,6 +1384,7 @@ START of discovery sequence
 [16:15:44][I][sicom:095]: Received Master message: 01.04.0A.0A.50 (5)
 [16:15:44][I][sicom:095]: Received Slave message: 01.19.10.A0.00.00.01.27.00.13.5C.49.00.00.00.00.34.54.25.4B.FF.FF.44.C9.37.0F (26)
 [16:15:44][I][sicom:095]: Received Master message: 02.04.0A.5B.31 (5)
+                                                   SC301 data
 [16:15:44][I][sicom:095]: Received Slave message: 02.17.0E.A0.FF.FF.FF.FC.04.E8.3C.7C.00.08.66.00.0C.9C.28.67.28.67.1A.96 (24)
 [16:15:45][I][sicom:095]: Received Master message: 01.04.0A.0A.50 (5)
 [16:15:45][I][sicom:095]: Received Slave message: 01.19.10.A0.00.00.01.27.00.13.5C.4A.00.00.00.00.34.50.25.4C.FF.FF.44.C9.1B.89 (26)

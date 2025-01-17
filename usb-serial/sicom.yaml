@@ -18,6 +18,8 @@ configurations:
   wakeup: false
   interfaces:
     - name: Data
+      class: 0xFF
+      subclass: 7
       endpoints:
         - number: 1
           direction: in
