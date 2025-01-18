@@ -11,9 +11,8 @@
 #define MAX_ADDRESS    0x20
 #define BROADCAST      0xFA
 #define CRC_ERR        0x01
-#define MAX_MSG_LEN    63
-#define MIN_LEN_B      4
-#define MAX_LEN_B      62
+#define MAX_MSG_LEN    64
+#define MIN_MSG_LEN    5
 
 
 // The USB descriptors.
@@ -22,20 +21,15 @@ extern USB_CONST USB_descriptor_table	sicom_usb_table;
 
 extern void serialSend(void);
 
-static unsigned char xdata rx_buf[2][MAX_MSG_LEN+1];		// receive data buffers
-static unsigned char xdata tx_buf[MAX_MSG_LEN+1];		// transmit data buffer
+static unsigned char xdata rx_buf[256];
+static unsigned char xdata tx_buf[MAX_MSG_LEN];		// transmit data buffer
 
 // buffer pointers
 
-static unsigned char rx_inp, rx_limit, tx_inp, tx_outp;
-
-// input buffer selector
-
-static bit rx_sel, rx_rdy, rx_rdy_sel;
+static unsigned char rx_inp, rx_outp, tx_inp, tx_outp;
 
 // if true, return master messages as well
 static bit log_master;
-
 
 // choose which pins the activity and power leds are on, and
 // their polarity
@@ -119,22 +113,35 @@ static void flashLed(unsigned char hl) {
 // send data from the rx buffer to the in endpoint if there is a complete message
 
 static void send_data(void) {
-    unsigned char rx_outp = 0;
-    unsigned char len;
-    unsigned char xdata * buf_ptr;
-    if (!rx_rdy)
-        return;
+	unsigned char remaining = rx_inp - rx_outp, len;
+	// skip over any non-address bytes
+	while (remaining) {
+		unsigned char c = rx_buf[rx_outp];
+		if (c <= MAX_ADDRESS || c == BROADCAST)
+			break;
+		rx_outp++;
+		remaining--;
+	}
+	if (remaining < MIN_MSG_LEN)
+		return;
+	len = rx_buf[(unsigned char)(rx_outp+1)] + 1;
+	// check for a valid message length
+	if (len > MAX_MSG_LEN) {
+		rx_outp++;
+		return;
+	}
+	// check for a complete message
+	if (remaining < len)
+		return;
+
     if(USB_status[USB_IN_EP] & TX_BUSY)
         return;     // fifo is full
 
-    buf_ptr = rx_rdy_sel ? rx_buf[1] : rx_buf[0];
-    len = buf_ptr[2];
-    while (rx_outp != len + 2) {
-        USB_send_byte(USB_IN_EP, buf_ptr[rx_outp++]);
-    }
-    rx_rdy = FALSE;
+	do {
+        USB_send_byte(USB_IN_EP, rx_buf[rx_outp++]);
+    } while(--len != 0);
     USB_flushin(USB_IN_EP, 0);
-    green_led_state = FALSE;
+    green_led_state = LED_OFF;;
 }
 
 
@@ -163,57 +170,30 @@ t2_isr(void) @ TIMER2
 static void interrupt
 UART_isr(void) @ SERIAL
 {
-    unsigned char c, remaining;
-    unsigned char xdata * buf_ptr;
-    while (RI0) {
-        buf_ptr = rx_sel ? rx_buf[1] : rx_buf[0];
-        c = SBUF0;
-        RI0 = FALSE;
-        if (rx_inp == sizeof(rx_buf[0]))
-            rx_inp = 0;
-        if (RB80) {   // start of master message, clear buffer
-            rx_inp = 1;
-            buf_ptr[0] = MASTER_MSG;
-        } else if (rx_inp == 0 && (c <= MAX_ADDRESS || c == BROADCAST)) {
-            rx_inp = 1;
-            buf_ptr[0] = 0;
-        }
-        if (rx_inp != 0) {
-            buf_ptr[rx_inp++] = c;
-            green_led_state = LED_ON;
-            // check for valid length, reset if not
-            if (rx_inp == 2) {
-                if (c < MIN_LEN_B || c > MAX_LEN_B)
-                    rx_inp = 0;
-                else {
-                    rx_limit = c + 2;
-                }
-            } else {
-                if (rx_inp == rx_limit) {
-                    if (!rx_rdy && (log_master || buf_ptr[0] != MASTER_MSG)) {
-                        rx_rdy_sel = rx_sel;
-                        rx_sel = !rx_sel;
-                        rx_rdy = TRUE;
-                    }
-                    rx_inp = 0;
-                    rx_limit = 0;
-                }
-            }
-        }
+    if (RI0) {
+    	unsigned char next = rx_inp + 1;
+    	unsigned char c = SBUF0;
+    	RI0 = FALSE;
+    	if (next != rx_outp)
+    	{
+    		rx_buf[rx_inp++] = c;
+    		green_led_state = LED_ON;
+    		SET_TIMEOUT(5);
+    	}
     }
-    while (TI0) {
+    if (TI0) {
         TI0 = FALSE;
         if (tx_inp == tx_outp) {
 			tx_outp = 0;
-            red_led_state = LED_OFF;
             TX_ENABLE = FALSE;
-            break;
+        } else
+        {
+	        if (tx_outp == 0)
+	        	TB80 = TRUE;
+	        else
+	        	TB80 = FALSE;
+        	SBUF0 = tx_buf[tx_outp++];
         }
-		if (tx_outp == 0)
-			TB80 = TRUE;
-		else
-			TB80 = FALSE;
-        SBUF0 = tx_buf[tx_outp++];
     }
 }
 
@@ -222,9 +202,11 @@ Endpoint_1(void)
 {
 	unsigned char	cnt, i;
 
-	// don't read if still sending last packet
-    if (TX_ENABLE)
+	// don't read if still sending last packet or receiving
+	red_led_state = LED_ON;
+    if (TX_ENABLE || !TIMEDOUT())
         return;
+	red_led_state = LED_ON;
 	tx_inp = USB_read_packet(USB_OUT_EP, tx_buf, sizeof tx_buf);
     USB_flushin(USB_OUT_EP, TRUE);
     switch (tx_buf[0]) {
@@ -238,7 +220,6 @@ Endpoint_1(void)
 
         default:
             if (tx_buf[0] <= MAX_ADDRESS || tx_buf[0] == BROADCAST) {
-                red_led_state = LED_ON;
                 tx_outp = 0;
                 TX_ENABLE = TRUE;
                 TI0 = TRUE;
@@ -304,6 +285,7 @@ main(void)
     ACTIVE(1);
     // let settle for a few seconds
     green_led_state = LED_FLASH;
+	red_led_state = LED_OFF;
 	for(;;) {
 		KICK_DOG();
 		EA = 0;
