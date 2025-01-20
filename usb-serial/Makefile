@@ -37,10 +37,10 @@ RMAKE	= $(MAKE) -f Makefile
 
 
 SRCS	 = \
-	   main.c sicom.yaml bootlib.as
+	   main.c sicom.yaml bootlib.as crc.c crc.h htusb.h
 
 OBJS	 = \
-		main.obj sicom.obj
+		main.obj sicom.obj crc.obj
 
 all:	  sicom.hex
 
