@@ -42,14 +42,15 @@ SRCS	 = \
 OBJS	 = \
 		main.obj sicom.obj crc.obj
 
-all:	  sicom.hex
+all:	  sicom.fmw
 
 sicom.c: sicom.yaml
 
 sicom.hex:	$(OBJS) Makefile
 	$(C) --rom=default,-0-fff --codeoffset=1000h $(CFLAGS) -osicom.hex -msicom.map $(OBJS) bootlib.as
+
+sicom.fmw: sicom.hex
 	$(FIRMWARE) -osicom.fmw -c1000 -v$(VERS) -p320 sicom.hex
-#	$(C) --chip=$(CHIP) -osicom.hex -msicom.map $(OBJS)
 
 srclist:
 	 @echo $(SRCS)

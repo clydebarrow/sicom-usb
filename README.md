@@ -13,6 +13,23 @@ The Sicom bus is used by Simarine devices to communicate sensor data.
   *  RS485-B
 * Connectors: RJ9
 
+### Display connector
+
+The Sicom display uses a 4 pin round DIN connector with the pinout:
+
+1. A
+2. 12V
+3. GND
+4. B
+
+View looking at connector (male pins) on back of display, upright.
+
+```
+1    4
+ 2  3
+```
+
+
 ### Signalling
 
 * Baud rate: 115200

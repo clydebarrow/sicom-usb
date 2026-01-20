@@ -1,6 +1,5 @@
 #include	<8051.h>
 #include	"crc.h"
-#include	<string.h>
 
 #include	<stdio.h>
 #include	<htusb.h>
@@ -12,20 +11,24 @@
 
 extern USB_CONST USB_descriptor_table	sicom_usb_table;
 
-extern void serialSend(void);
-
-static unsigned char xdata rx_buf[256];
-static unsigned char xdata tx_buf[MAX_MSG_LEN];		// transmit data buffer
-
-static unsigned char device_idx;
 
 
 // buffer pointers
 
 static unsigned char rx_inp, tx_inp, tx_outp;
+static unsigned char xdata rx_buf[256];
+static unsigned char xdata tx_buf[64];		// transmit data buffer
+static unsigned char xdata device_flags[MAX_ADDRESS];
+static unsigned char device_idx;
+
+// host messages to send
+static unsigned char msg_len;
+static unsigned char xdata usb_buf[64];		// USB data buffer
 
 // if true, return master messages as well
 static bit log_master;
+
+static bit second_tick;
 
 // choose which pins the activity and power leds are on, and
 // their polarity
@@ -65,9 +68,9 @@ static unsigned int	    timeout;		// timeout value in ticks
 
 
 #define	FLASH_RATE	3
-#define	FLASH_PRELOAD	((T2RATE+1)/FLASH_RATE)
+#define	FLASH_PRELOAD	((T2RATE+1)/FLASH_RATE/2)
 
-#define MESSAGE_RATE 128	// 32 main loops between messages.
+#define MESSAGE_RATE 8	// main loops between messages.
 
 
 /**
@@ -75,7 +78,7 @@ static unsigned int	    timeout;		// timeout value in ticks
  * The argument is true or false for high/low states
  */
 
-static void flashLed(unsigned char hl) {
+static void flashLed() {
     switch(green_led_state) {
 
         case LED_ON:
@@ -83,10 +86,10 @@ static void flashLed(unsigned char hl) {
             break;
 
         case LED_FLASH:
-            GREEN(hl);
+			POWER_LED ^= 1;
             break;
 
-        case LED_OFF:
+    default:
             GREEN(FALSE);
             break;
     }
@@ -97,7 +100,7 @@ static void flashLed(unsigned char hl) {
             break;
 
         case LED_FLASH:
-            ACTIVE(hl);
+			ACTIVITY_LED ^= 1;
             break;
 
         case LED_OFF:
@@ -112,23 +115,21 @@ static void flashLed(unsigned char hl) {
 static void interrupt
 t2_isr(void) @ TIMER2
 {
-	static unsigned char		debouncer;
-    static unsigned int         flcounter;
+    static unsigned int flcounter;
+	static unsigned int second_counter;
 
 	TF2H = 0;					// clear interrupt flag
 	if(timeout != 0)
         timeout--;
 
-    switch(++flcounter) {
-        case FLASH_PRELOAD:
-            flcounter = 0;
-            flashLed(TRUE);
-            break;
-
-        case FLASH_PRELOAD/2:
-            flashLed(FALSE);
-            break;
-    }
+	if (++flcounter == FLASH_PRELOAD) {
+		flcounter = 0;
+		flashLed();
+	}
+	if (++second_counter == T2RATE) {
+		second_counter = 0;
+		second_tick = TRUE;
+	}
 }
 
 static void interrupt
@@ -164,10 +165,8 @@ UART_isr(void) @ SERIAL
     }
 }
 
-static const unsigned char ALL_CALL[] = { 0xFA, 0x04, 0x31, 0xCF, 0xFF};
-
 static void send_data(void) {
-	unsigned char idx = 0;
+	unsigned char idx = rx_buf[0];
 	unsigned char len = rx_buf[1] + 1;
 	if (rx_inp < MIN_MSG_LEN)
 		return;
@@ -178,17 +177,33 @@ static void send_data(void) {
 	}
 	if (rx_inp < len)
 		return;
-    if(USB_status[USB_IN_EP] & TX_BUSY || calculateCRC16(rx_buf, len) != 0) {
+    if (calculateCRC16(rx_buf, len) != 0) {
 		rx_inp = 0;
 		green_led_state = LED_OFF;
 		return;
 	}
+	if (idx < MAX_ADDRESS && rx_buf[2] == REPLY_DATA_MSG && device_flags[idx] & DEVICE_SENT) {
+		rx_inp = 0;
+		green_led_state = LED_OFF;
+		return;
+	}
+    if(USB_status[USB_IN_EP] & TX_BUSY)
+    	return;
+	device_flags[idx] |= DEVICE_SENT;
+	idx = 0;
 	do {
         USB_send_byte(USB_IN_EP, rx_buf[idx++]);
     } while(--len != 0);
 	rx_inp = 0;
     USB_flushin(USB_IN_EP, 0);
     green_led_state = LED_OFF;;
+	idx = rx_buf[0] - 1;
+}
+
+static void clear_sent() {
+	unsigned char idx = MAX_ADDRESS;
+	while(idx-- != 0)
+		device_flags[idx] &= ~DEVICE_SENT;
 }
 
 static void start_uart()
@@ -205,12 +220,12 @@ static void start_uart()
 static void
 endpoint_out(void)
 {
-	unsigned char cnt;
+	unsigned char cnt, address;
 
-	cnt = USB_read_packet(USB_OUT_EP, tx_buf, sizeof tx_buf);
+	cnt = USB_read_packet(USB_OUT_EP, usb_buf, sizeof usb_buf);
 	USB_flushin(USB_OUT_EP, TRUE);
-	switch (tx_buf[0])
-	{
+	address = usb_buf[0];
+	switch (address) {
 	case LOG_MASTER:
 		log_master = TRUE;
 		break;
@@ -220,30 +235,40 @@ endpoint_out(void)
 		break;
 
 	default:
+		if (address < MAX_ADDRESS) {
+			device_flags[address] |= DEVICE_SEEN;
+			msg_len = cnt;
+		} else if (address == BROADCAST_ADDRESS) {
+			msg_len = cnt;
+		}
 		break;
-	}
-	if (tx_buf[0] <= MAX_ADDRESS || tx_buf[0] == BROADCAST) {
-		tx_outp = 0;
-		tx_inp = cnt;
-		start_uart();
 	}
 }
 
-static void send_request() {
-	if (TX_ENABLE)
-		return;
-	if (device_idx == 0) {
-		memcpy(tx_buf, ALL_CALL, sizeof ALL_CALL);
-	} else {
-		tx_buf[0] = device_idx;
-		tx_buf[1] = 0x04;
-		tx_buf[2] = REQUEST_DATA_MSG;
-		add_crc(tx_buf, 3);
-	}
-	tx_outp = 0;
+static void memcpy(unsigned char xdata * dest, const unsigned char xdata * src, unsigned char len) {
+	while(len-- != 0)
+		*dest++ = *src++;
+}
+
+static void send_message(unsigned char address, unsigned char command) {
+	tx_buf[0] = address;
+	tx_buf[1] = 0x04;
+	tx_buf[2] = command;
+	add_crc(tx_buf, 3);
 	tx_inp = 5;
-	device_idx++;
-	device_idx &= 0x3;
+}
+
+static void send_request() {
+	if (msg_len != 0) {
+		memcpy(tx_buf, usb_buf, msg_len);
+		tx_inp = msg_len;
+		msg_len = 0;
+		return;
+	}
+	device_idx--;
+	device_idx %= MAX_ADDRESS;
+	if (device_flags[device_idx] & DEVICE_SEEN)
+		send_message(device_idx, REQUEST_DATA_MSG);
 }
 
 static void
@@ -303,6 +328,20 @@ main(void)
 	red_led_state = LED_OFF;
 	for(;;) {
 		KICK_DOG();
+		// check that we are not in the middle of a transmission or reception
+		if (TIMEDOUT() && !TX_ENABLE && tx_inp == 0) {
+			if (++cnt == 0)
+				red_led_state = !red_led_state;
+			if (cnt % MESSAGE_RATE == 0) {
+				if (second_tick) {
+					second_tick = FALSE;
+					clear_sent();
+					send_message(BROADCAST_ADDRESS, ALL_CALL_MSG);
+					device_idx = 0;
+				} else
+					send_request();
+			}
+		}
 		EA = 0;
 		if(USB_status[0] & USB_SUSPEND) {
 			// suspended - turn the LEDs off lest we draw too much current.
@@ -315,11 +354,11 @@ main(void)
 			if (req == 0x7F) {
 				red_led_state = LED_FLASH;
                 green_led_state = LED_OFF;
-				SET_TIMEOUT(1000);
+				SET_TIMEOUT(200);
 				while(!TIMEDOUT())
 					continue;
 				USB_detach();
-				SET_TIMEOUT(1000);
+				SET_TIMEOUT(200);
 				while(!TIMEDOUT())
 					continue;
 				RSTSRC |= 0x10;         // software reset
@@ -328,15 +367,10 @@ main(void)
 		if(USB_status[USB_OUT_EP] & RX_READY) {
 			EA = 1;
 			endpoint_out();
-			continue;
 		}
 		EA = 1;
         send_data();
-		cnt++;
-		if (cnt == 0)
-			red_led_state = !red_led_state;
-		//if ((cnt & (MESSAGE_RATE -1)) == 0)
-			//send_request();
+		start_uart();
 		PCON |= 1;		// sleep
 	}
 }

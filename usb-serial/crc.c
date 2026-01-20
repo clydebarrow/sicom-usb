@@ -19,18 +19,18 @@ static const unsigned short crc_table[256] = {
     0x97e0, 0x8669, 0x7787, 0x660e, 0x5495, 0x451c, 0x31a3, 0x202a, 0x12b1, 0x0338, 0xfbcf, 0xea46, 0xd8dd, 0xc954,
     0xbdeb, 0xac62, 0x9ef9, 0x8f70};
 
-unsigned short calculateCRC16(const unsigned char * data, unsigned char len) {
+unsigned short calculateCRC16(const unsigned char xdata * data, unsigned char len) {
   unsigned short crc = 0x0000;  // Initial value
 
   unsigned char i;
-  for (i = len; --i != 0 ; ) {
+  while (len-- != 0) {
     unsigned char tbl_idx = ((crc >> 8) ^ *data++);
     crc = (crc_table[tbl_idx] ^ (crc << 8));
   }
   return crc;
 }
 
-void add_crc(unsigned char * data, unsigned char len) {
+void add_crc(unsigned char xdata * data, unsigned char len) {
   unsigned short crc = calculateCRC16(data, len);
   data[len] = crc >> 8;
   data[len + 1] = crc & 0xFF;
