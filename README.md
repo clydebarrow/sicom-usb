@@ -84,7 +84,7 @@ There is a special address for broadcast enquiries equal to 0x1FA. This is used 
 
 ### Discovery Protocol
 
-Devices on the bus are initially unconfigured, i.e. do not have an address assigned. The controller requests new devices to identify themselves with a command 31 broadcast message:
+Devices on the bus are initially unconfigured, i.e. do not have an address assigned. The controller requests new devices to identify themselves with a command 31 "ALL-CALL" broadcast message:
 
 
 ```
@@ -99,6 +99,7 @@ FA.09.<type>.C0.<serial-L>.<crc>
 
 Where <type> is a single byte denoting the device type. Known values are:
 
+* 0x02 - SCQ25T
 * 0x03 - ST107
 * 0x0E - SC301  
 * 0x10 - SC303
@@ -106,7 +107,7 @@ Where <type> is a single byte denoting the device type. Known values are:
 
 The serial number is the 32 bit serial number of the device, in *little endian* order.
 
-The master responds to this message with the following:
+The master responds to this message with the an enrolment message:
 
 ```
 1FA.09.20.<serial-B>.<address>.<crc>
@@ -121,7 +122,11 @@ The device acknowledges this with a message:
 <address>.09.<type>.C1.<serial-L>.<crc>
 ```
 
-The command 31 broadcast message is repeated once per second to identify any further devices or new devices added to the bus.
+On receipt this the master must immediately send a data request message (see below) which the device uses to confirm
+that it has been enrolled successfully. Subsequently as long as the device is polled at least once per second it will
+not respond to the ALL-CALL  message.
+
+The ALL-CALL  message is repeated once per second to identify any further devices or new devices added to the bus.
 
 ### Data Request
 
